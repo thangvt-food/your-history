@@ -61,7 +61,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-@OptBitmap
 fun formatCurrency(amount: Long): String {
     return NumberFormat.getNumberInstance(Locale("vi", "VN")).format(amount) + " đ"
 }
