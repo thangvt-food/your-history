@@ -51,6 +51,44 @@ object BankingHandoffManager {
     }
 
     /**
+     * Builds the official VietQR Payment Deeplink URL:
+     * https://dl.vietqr.io/pay?app={appId}&ba={accountNumber}@{bankBin}&am={amount}&tn={memo}&bn={recipientName}
+     */
+    fun buildVietQrPaymentDeeplink(
+        appId: String,
+        bankBin: String,
+        accountNumber: String,
+        amount: Long?,
+        memo: String,
+        recipientName: String? = null
+    ): String {
+        val encodedMemo = try {
+            URLEncoder.encode(memo, "UTF-8")
+        } catch (e: Exception) {
+            memo
+        }
+        val recipientParam = if (!recipientName.isNullOrBlank()) {
+            val encodedRecipient = try {
+                URLEncoder.encode(recipientName, "UTF-8")
+            } catch (e: Exception) {
+                recipientName
+            }
+            "&bn=$encodedRecipient"
+        } else ""
+        val amountParam = if (amount != null && amount > 0) "&am=$amount" else ""
+        return "https://dl.vietqr.io/pay?app=$appId&ba=$accountNumber@$bankBin$amountParam&tn=$encodedMemo$recipientParam"
+    }
+
+    /**
+     * Trả về app ngân hàng ưu tiên nếu đã cài trên máy.
+     * Ưu tiên MBBank nếu có, sau đó là app đầu tiên tìm thấy.
+     */
+    fun getPreferredBankingApp(context: Context): BankInfo? {
+        val installed = getInstalledBankingApps(context)
+        return installed.firstOrNull { it.vietQrAppId == "mb" } ?: installed.firstOrNull()
+    }
+
+    /**
      * Builds the Napas / VietQR deep link URI.
      */
     fun buildVietQrDeepLinkUri(
@@ -105,17 +143,11 @@ object BankingHandoffManager {
     }
 
     /**
-     * Attempts to launch the banking app.
-     *
-     * Thực tế tại VN: hầu hết app ngân hàng KHÔNG hỗ trợ điền sẵn form
-     * chuyển khoản qua intent (ngoại trừ số ít xử lý scheme Napas VietQR).
-     * Do đó thứ tự ưu tiên:
-     *  1. Thử VietQR deep link có gắn [targetPackageName] (setPackage) —
-     *     nếu bank có đăng ký scheme thì mở thẳng màn hình CK có sẵn thông tin.
-     *  2. Nếu deep link không được xử lý, mở app trắng + hướng dẫn dán thủ công
-     *     (thông tin đã copy vào Clipboard ở bước trước).
-     *  3. Không chọn app cụ thể: thử deep link chung, rồi fallback mở app của
-     *     ngân hàng nhận (BIN) nếu đã cài.
+     * Khởi chạy chuyển khoản trực tiếp sang app ngân hàng:
+     *  1. Tự động sao chép STK, số tiền, nội dung vào Clipboard (phao cứu sinh 100%).
+     *  2. Dựng VietQR Payment Deeplink chuẩn (dl.vietqr.io/pay?app=...) để mở thẳng
+     *     màn hình thanh toán của app ngân hàng (MB Bank, VietinBank, BIDV, ACB...).
+     *  3. Fallback: mở app bằng direct package launch nếu deeplink gặp lỗi.
      */
     fun launchBankingHandoff(
         context: Context,
@@ -123,88 +155,76 @@ object BankingHandoffManager {
         accountNumber: String,
         amount: Long?,
         memo: String,
+        recipientName: String? = null,
         targetPackageName: String? = null
     ): Boolean {
-        // Always copy transfer info to clipboard as safety fallback
+        // 1. Luôn sao chép thông tin vào Clipboard làm dự phòng an toàn
         copyTransferInfoToClipboard(context, accountNumber, amount, memo)
 
-        val deepLinkUri = buildVietQrDeepLinkUri(bankBin, accountNumber, amount, memo)
+        // Xác định app ngân hàng mục tiêu (ưu tiên targetPackageName, sau đó là app ưu tiên đã cài)
+        val targetBank = if (!targetPackageName.isNullOrBlank()) {
+            VietnameseBanks.findByPackage(targetPackageName)
+        } else {
+            getPreferredBankingApp(context)
+        }
 
-        // 1. User chọn app cụ thể: ưu tiên deep link gắn package
-        if (!targetPackageName.isNullOrBlank()) {
+        // 2. Nếu tìm được app có VietQR appId (ví dụ 'mb' cho MB Bank) -> mở qua Payment Deeplink
+        if (targetBank?.vietQrAppId != null) {
+            val paymentDeeplink = buildVietQrPaymentDeeplink(
+                appId = targetBank.vietQrAppId,
+                bankBin = bankBin,
+                accountNumber = accountNumber,
+                amount = amount,
+                memo = memo,
+                recipientName = recipientName
+            )
             try {
-                val targetedDeepLink = Intent(Intent.ACTION_VIEW, deepLinkUri).apply {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(paymentDeeplink)).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    setPackage(targetPackageName)
                 }
-                if (targetedDeepLink.resolveActivity(context.packageManager) != null) {
-                    context.startActivity(targetedDeepLink)
-                    Toast.makeText(
-                        context,
-                        "Đã mở app ngân hàng kèm thông tin chuyển khoản.",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                    return true
-                }
+                context.startActivity(intent)
+                Toast.makeText(
+                    context,
+                    "Đang mở ${targetBank.shortName}... Đã sao chép STK & nội dung!",
+                    Toast.LENGTH_SHORT
+                ).show()
+                return true
             } catch (e: Exception) {
-                // Deep link không được app đó xử lý -> fallback bên dưới
+                // Fallback sang mở trực tiếp package bên dưới
             }
+        }
 
-            val launchIntent = context.packageManager.getLaunchIntentForPackage(targetPackageName)
+        // 3. Fallback: Nếu không mở được deeplink hoặc không có appId, mở app trắng theo package
+        val fallbackPackage = targetBank?.packageName ?: targetPackageName
+        if (!fallbackPackage.isNullOrBlank()) {
+            val launchIntent = context.packageManager.getLaunchIntentForPackage(fallbackPackage)
             if (launchIntent != null) {
                 launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 context.startActivity(launchIntent)
                 Toast.makeText(
                     context,
-                    "App ngân hàng không tự điền được — hãy dán STK, số tiền, nội dung từ Clipboard.",
+                    "Đã mở ${targetBank?.shortName ?: "app ngân hàng"}. Hãy dán STK & nội dung từ Clipboard.",
                     Toast.LENGTH_LONG
                 ).show()
                 return true
             }
         }
 
-        // 2. Try the primary VietQR deep link intent (không gắn package)
+        // 4. Nếu không có app nào được cài, thử mở deep link Napas chung
         try {
-            val intent = Intent(Intent.ACTION_VIEW, deepLinkUri).apply {
+            val genericUri = buildVietQrDeepLinkUri(bankBin, accountNumber, amount, memo)
+            val genericIntent = Intent(Intent.ACTION_VIEW, genericUri).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            if (intent.resolveActivity(context.packageManager) != null) {
-                context.startActivity(intent)
+            if (genericIntent.resolveActivity(context.packageManager) != null) {
+                context.startActivity(genericIntent)
                 return true
             }
         } catch (e: Exception) {
-            // Deep link not handled
-        }
-
-        // 3. Fallback: mở app của ngân hàng nhận (tra theo BIN) nếu đã cài.
-        // Thử deep link gắn package trước, rồi mới mở trắng.
-        val bank = VietnameseBanks.findByBin(bankBin)
-        if (bank?.packageName != null) {
-            try {
-                val bankDeepLink = Intent(Intent.ACTION_VIEW, deepLinkUri).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    setPackage(bank.packageName)
-                }
-                if (bankDeepLink.resolveActivity(context.packageManager) != null) {
-                    context.startActivity(bankDeepLink)
-                    return true
-                }
-            } catch (e: Exception) {
-                // Bỏ qua, mở trắng bên dưới
-            }
-            val launchIntent = context.packageManager.getLaunchIntentForPackage(bank.packageName)
-            if (launchIntent != null) {
-                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(launchIntent)
-                Toast.makeText(
-                    context,
-                    "App ngân hàng không tự điền được — hãy dán STK, số tiền, nội dung từ Clipboard.",
-                    Toast.LENGTH_LONG
-                ).show()
-                return true
-            }
+            // Không mở được
         }
 
         return false
     }
 }
+

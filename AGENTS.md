@@ -140,5 +140,12 @@ Một tính năng hoặc thay đổi chỉ được coi là hoàn thành khi đ�
 ### Session 3: Luồng Hiện VietQR để quét (2026-09-24)
 - **Tài liệu chi tiết**: [`docs/sessions/2026-09-24-show-qr.md`](docs/sessions/2026-09-24-show-qr.md) (bản đầu, đã bị thay thế), luồng đúng tại [`docs/sessions/2026-09-24-gallery-qr.md`](docs/sessions/2026-09-24-gallery-qr.md), spec §4.4 tại [`docs/specs/vietqr-expense-tracking.md`](docs/specs/vietqr-expense-tracking.md).
 - **Kinh nghiệm kỹ thuật**:
-  1. *Không có API public để điền sẵn app bank*: deeplink (kể cả `mbbank://`) chỉ mở app; Zalo làm được nhờ hợp tác riêng + ký số. Hiện QR trên màn hình cũng vô dụng với 1 máy. Luồng universal duy nhất: dựng QR động -> lưu ảnh Thư viện -> quét từ ảnh trong app bank (VCB/TCB có tài liệu chính thức).
+  1. *Không ép người dùng quét 2 lần*: Luồng dựng QR động lưu ảnh Thư viện chỉ nên là phương án phụ (hoặc khi muốn hiện QR cho máy khác quét). Người dùng thanh toán trên 1 máy muốn 1 chạm mở thẳng app ngân hàng.
   2. *Chuẩn hóa ASCII trước khi dựng EMV*: tên/memo bỏ dấu, in hoa, truncate theo giới hạn TLV để tránh mã QR lỗi mà bank không đọc được.
+
+### Session 4: Chuẩn VietQR Payment Deeplink & Handoff 1 Chạm MB Bank (2026-09-24)
+- **Tài liệu chi tiết**: [`docs/sessions/2026-09-24-vietqr-deeplink.md`](docs/sessions/2026-09-24-vietqr-deeplink.md).
+- **Kinh nghiệm kỹ thuật**:
+  1. *VietQR Payment Deeplink*: Chuẩn `https://dl.vietqr.io/pay?app={appId}&ba={accountNumber}@{bankBin}&am={amount}&tn={memo}&bn={recipientName}` (với `app=mb` cho MB Bank) được VietQR hỗ trợ autofill (`autofill=1`) và tự động điều hướng sang `intent://#Intent;scheme=mbbank;package=com.mbmobile;end`.
+  2. *Xóa bỏ triệt để Double Scan*: Người dùng chỉ quét mã 1 lần tại Your History -> bấm "Mở MBBank chuyển tiền & Lưu" -> mở thẳng MBBank với thông tin chuyển tiền + tự động lưu lịch sử Room DB + sao chép Clipboard làm phao cứu sinh an toàn 100%.
+

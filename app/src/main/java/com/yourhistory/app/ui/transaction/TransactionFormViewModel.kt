@@ -295,6 +295,7 @@ class TransactionFormViewModel(
                     accountNumber = state.accountNumber,
                     amount = amount,
                     memo = state.memo,
+                    recipientName = state.recipientName,
                     targetPackageName = targetPackageName
                 )
             }

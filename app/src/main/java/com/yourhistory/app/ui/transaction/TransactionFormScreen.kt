@@ -23,6 +23,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
@@ -381,13 +382,18 @@ fun TransactionFormScreen(
 
             // Action Buttons
             if (uiState.bankBin.isNotBlank()) {
-                // Nút chính: chuyển nhanh — lưu ảnh QR + lịch sử, mở app bank quét từ ảnh
+                val preferredBank = remember(uiState.installedBanks) {
+                    uiState.installedBanks.firstOrNull { it.vietQrAppId == "mb" }
+                        ?: uiState.installedBanks.firstOrNull()
+                }
+
+                // Nút chính: Chuyển tiền trực tiếp qua VietQR Deeplink & Tự động lưu chi tiêu
                 Button(
                     onClick = {
                         if (uiState.installedBanks.size > 1) {
                             showBankPickerSheet = true
                         } else {
-                            requestShowQr(uiState.installedBanks.firstOrNull()?.packageName)
+                            viewModel.transferAndSave(context, preferredBank?.packageName)
                         }
                     },
                     modifier = Modifier
@@ -398,32 +404,29 @@ fun TransactionFormScreen(
                         containerColor = MaterialTheme.colorScheme.primary
                     )
                 ) {
-                    Icon(Icons.Default.QrCodeScanner, contentDescription = null)
+                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        "Chuyển nhanh & Lưu",
+                        if (preferredBank != null) "Mở ${preferredBank.shortName} chuyển tiền & Lưu"
+                        else "Mở app ngân hàng chuyển tiền & Lưu",
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp
                     )
                 }
 
-                // Nút phụ: Mở app ngân hàng & Lưu (deep link + clipboard)
-                OutlinedButton(
-                    onClick = {
-                        if (uiState.installedBanks.size > 1) {
-                            showBankPickerSheet = true
-                        } else {
-                            viewModel.transferAndSave(context)
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(50.dp),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Icon(Icons.Default.OpenInNew, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Mở app bank (dán thủ công)")
+                // Nếu có nhiều hơn 1 app ngân hàng đã cài, cho phép đổi app
+                if (uiState.installedBanks.size > 1) {
+                    OutlinedButton(
+                        onClick = { showBankPickerSheet = true },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Icon(Icons.Default.AccountBalance, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Đổi app ngân hàng khác (${uiState.installedBanks.size} app đã cài)")
+                    }
                 }
 
                 // Nút phụ: Chỉ lưu không mở ngân hàng
@@ -437,6 +440,19 @@ fun TransactionFormScreen(
                     Icon(Icons.Default.Save, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Chỉ lưu chi tiêu (không mở app ngân hàng)")
+                }
+
+                // Tùy chọn phụ: Hiện mã QR cho thiết bị khác quét
+                OutlinedButton(
+                    onClick = { requestShowQr(preferredBank?.packageName) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Icon(Icons.Default.QrCodeScanner, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Hiện mã QR cho thiết bị khác quét")
                 }
             } else {
                 // Chỉ lưu chi tiêu (nhập tay)
@@ -472,45 +488,17 @@ fun TransactionFormScreen(
                         .padding(20.dp)
                 ) {
                     Text(
-                        "Chọn app ngân hàng của bạn (tài khoản chuyển đi)",
+                        "Chọn app ngân hàng để chuyển tiền",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "App dựng sẵn mã QR đủ số tiền + nội dung, lưu vào Thư viện ảnh và lưu lịch sử. Mở app bank → Quét QR → chọn ảnh từ Thư viện là xong, không cần gõ hay dán.",
+                        "Chạm vào app để mở thẳng form chuyển tiền qua VietQR Deeplink và tự động lưu chi tiêu vào lịch sử.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(16.dp))
-
-                    // Không chọn app cụ thể: chỉ lưu ảnh + lịch sử, tự mở bank sau
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                showBankPickerSheet = false
-                                requestShowQr(null)
-                            }
-                            .padding(vertical = 4.dp),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                Icons.Default.OpenInNew,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Text(
-                                "Không mở app ngay (chỉ lưu ảnh QR + lịch sử)",
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
 
                     // Danh sách các app ngân hàng tìm thấy trên máy (tài khoản chuyển đi)
                     uiState.installedBanks.forEach { bank ->
@@ -519,7 +507,7 @@ fun TransactionFormScreen(
                                 .fillMaxWidth()
                                 .clickable {
                                     showBankPickerSheet = false
-                                    requestShowQr(bank.packageName)
+                                    viewModel.transferAndSave(context, bank.packageName)
                                 }
                                 .padding(vertical = 4.dp),
                             shape = RoundedCornerShape(12.dp)
@@ -531,7 +519,7 @@ fun TransactionFormScreen(
                                 Icon(
                                     Icons.Default.AccountBalance,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.secondary
+                                    tint = MaterialTheme.colorScheme.primary
                                 )
                                 Spacer(modifier = Modifier.width(16.dp))
                                 Column {
