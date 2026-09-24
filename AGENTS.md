@@ -113,7 +113,7 @@ Một tính năng hoặc thay đổi chỉ được coi là hoàn thành khi đ�
   - `workflow_dispatch` (kích hoạt thủ công).
 - **Concurrency**: `group: ${{ github.workflow }}-${{ github.ref }}`, `cancel-in-progress: true` (hủy bỏ build cũ khi có commit mới để tiết kiệm phút runner).
 - **Cấu hình tối ưu**:
-  - Sử dụng `gradle/actions/setup-gradle@v3` với `gradle-home-cache-cleanup: true`.
+  - Sử dụng `gradle/actions/setup-gradle@v4` với `gradle-home-cache-cleanup: true`.
   - Command: `./gradlew assembleDebug --no-daemon -x test -x lint -x lintVitalAnalyzeRelease`.
   - JVM args: `-Xmx2048m -XX:+UseG1GC`, `parallel=true`, `caching=true`, `vfs.watch=false`, `kotlin.incremental=false`.
 - **Artifact đầu ra**: `your-history-debug-apk` chứa `app-debug.apk`, thời gian lưu trữ (retention) 14 ngày.
@@ -127,4 +127,10 @@ Một tính năng hoặc thay đổi chỉ được coi là hoàn thành khi đ�
 - **Kinh nghiệm kỹ thuật**:
   1. *Handoff sang App Ngân hàng tại VN*: Các app ngân hàng tại Việt Nam không có một chuẩn intent thống nhất để tự động điền form chuyển khoản ngoại trừ chuẩn Napas 247 VietQR (`vietqr://transfer?...`). Do đó giải pháp kết hợp Deep Link + tự động sao chép thông tin vào Clipboard + danh sách app ngân hàng đã cài trên máy là cơ chế an toàn và thuận tiện nhất.
   2. *Thiết kế Parser độc lập*: Không phụ thuộc vào `android.net.Uri` trong parser mà dùng `java.net.URI` thuần JVM giúp cho việc chạy Unit test nhanh hơn hàng chục lần mà không cần giả lập môi trường Android.
-  3. *Tách biệt Doc và Changelog*: Giữ `AGENTS.md` tập trung vào Quy ước, Tiêu chuẩn kỹ thuật (Source of Truth) và Definition of Done. Chuyển chi tiết danh sách file và nhật ký phiên làm việc ra thư mục `docs/sessions/` để tránh tài liệu bị phình to mất kiểm soát.
+   3. *Tách biệt Doc và Changelog*: Giữ `AGENTS.md` tập trung vào Quy ước, Tiêu chuẩn kỹ thuật (Source of Truth) và Definition of Done. Chuyển chi tiết danh sách file và nhật ký phiên làm việc ra thư mục `docs/sessions/` để tránh tài liệu bị phình to mất kiểm soát.
+
+### Session 2: Handoff v2 & UX Nhập tiền/Tag (2026-09-24)
+- **Tài liệu chi tiết**: [`docs/sessions/2026-09-24-handoff-ux.md`](docs/sessions/2026-09-24-handoff-ux.md), spec §4.2–4.3 tại [`docs/specs/vietqr-expense-tracking.md`](docs/specs/vietqr-expense-tracking.md).
+- **Kinh nghiệm kỹ thuật**:
+  1. *Deep link có package vẫn là best-effort*: `Intent(ACTION_VIEW, vietqrUri).setPackage(pkg)` chỉ hiệu quả nếu bank đăng ký scheme Napas; phần lớn trường hợp vẫn mở trắng nên phải Toast trung thực + hướng dẫn dán từ Clipboard thay vì hứa hẹn tự điền.
+  2. *Tiền nhập digits-only, hiển thị grouped*: giữ `amountText` là chữ số thô trong ViewModel, format `1 000 000` ở tầng UI bằng hàm thuần Kotlin trong `companion object` để dễ unit test JVM.

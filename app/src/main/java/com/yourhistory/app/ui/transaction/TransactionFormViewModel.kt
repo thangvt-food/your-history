@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.yourhistory.app.data.local.entity.CategoryEntity
 import com.yourhistory.app.data.local.entity.QrContactEntity
 import com.yourhistory.app.data.local.entity.TransactionEntity
+import com.yourhistory.app.data.local.preferences.UserPreferencesRepository
 import com.yourhistory.app.data.repository.ExpenseRepository
 import com.yourhistory.app.domain.handoff.BankingHandoffManager
 import com.yourhistory.app.domain.model.BankInfo
@@ -37,14 +38,18 @@ data class TransactionFormState(
     val saveToContacts: Boolean = true,
     val contactId: String? = null,
     val installedBanks: List<BankInfo> = emptyList(),
+    val memoTags: List<String> = emptyList(),
     val isSaving: Boolean = false
 )
 
 class TransactionFormViewModel(
-    private val repository: ExpenseRepository
+    private val repository: ExpenseRepository,
+    private val preferences: UserPreferencesRepository
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(TransactionFormState())
+    private val _uiState = MutableStateFlow(
+        TransactionFormState(memoTags = DEFAULT_MEMO_TAGS)
+    )
     val uiState: StateFlow<TransactionFormState> = _uiState.asStateFlow()
 
     private val _events = MutableSharedFlow<TransactionFormEvent>()
@@ -76,6 +81,16 @@ class TransactionFormViewModel(
         )
 
         loadCategories()
+        loadMemoTags()
+    }
+
+    private fun loadMemoTags() {
+        viewModelScope.launch {
+            preferences.customMemoTags.collect { custom ->
+                val merged = (DEFAULT_MEMO_TAGS + custom).distinct()
+                _uiState.value = _uiState.value.copy(memoTags = merged)
+            }
+        }
     }
 
     private fun loadCategories() {
@@ -97,12 +112,33 @@ class TransactionFormViewModel(
     }
 
     fun onAmountChanged(amount: String) {
-        val filtered = amount.filter { it.isDigit() }
+        // Chỉ giữ chữ số, bỏ mọi dấu cách/chấm phân cách khi nhập
+        val filtered = amount.filter { it.isDigit() }.trimStart('0')
         _uiState.value = _uiState.value.copy(amountText = filtered)
     }
 
     fun onMemoChanged(memo: String) {
         _uiState.value = _uiState.value.copy(memo = memo)
+    }
+
+    /** Chạm tag -> điền nhanh vào nội dung CK: trống thì gán, có rồi thì nối thêm. */
+    fun onMemoTagClicked(tag: String) {
+        val current = _uiState.value.memo.trim()
+        val newMemo = when {
+            current.isEmpty() -> tag
+            current.contains(tag, ignoreCase = true) -> current
+            else -> "$current $tag"
+        }
+        _uiState.value = _uiState.value.copy(memo = newMemo)
+    }
+
+    /** Người dùng tự thêm tag mới, lưu bền vào DataStore để lần sau dùng tiếp. */
+    fun onAddCustomTag(tag: String) {
+        val clean = tag.trim()
+        if (clean.isEmpty()) return
+        viewModelScope.launch {
+            preferences.addMemoTag(clean)
+        }
     }
 
     fun onRecipientChanged(name: String) {
@@ -115,6 +151,34 @@ class TransactionFormViewModel(
 
     fun onSaveToContactsChanged(save: Boolean) {
         _uiState.value = _uiState.value.copy(saveToContacts = save)
+    }
+
+    companion object {
+        val DEFAULT_MEMO_TAGS = listOf(
+            "Cơm trưa", "Cà phê", "Xăng xe", "Đi chợ",
+            "Tiền nhà", "Trả nợ", "Ăn vặt", "Mua sắm"
+        )
+
+        /**
+         * Định dạng chuỗi chữ số thành nhóm 3 số cách nhau bằng dấu cách
+         * để dễ nhìn khi nhập: "1000000" -> "1 000 000".
+         * Hàm thuần Kotlin, có thể unit test trên JVM.
+         */
+        fun formatAmountInput(digits: String): String {
+            val clean = digits.filter { it.isDigit() }.trimStart('0')
+            if (clean.isEmpty()) return ""
+            val sb = StringBuilder()
+            var count = 0
+            for (i in clean.length - 1 downTo 0) {
+                sb.append(clean[i])
+                count++
+                if (count == 3 && i != 0) {
+                    sb.append(' ')
+                    count = 0
+                }
+            }
+            return sb.reverse().toString()
+        }
     }
 
     /**

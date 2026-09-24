@@ -25,7 +25,7 @@ val appModule = module {
     // ViewModels
     viewModel { HomeViewModel(get()) }
     viewModel { ScannerViewModel() }
-    viewModel { TransactionFormViewModel(get()) }
+    viewModel { TransactionFormViewModel(get(), get()) }
     viewModel { QrContactsViewModel(get()) }
     viewModel { HistoryViewModel(get()) }
 }

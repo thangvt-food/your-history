@@ -205,11 +205,15 @@ fun TransactionFormScreen(
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 OutlinedTextField(
-                    value = uiState.amountText,
-                    onValueChange = { viewModel.onAmountChanged(it) },
+                    value = TransactionFormViewModel.formatAmountInput(uiState.amountText),
+                    onValueChange = { viewModel.onAmountChanged(it.filter { c -> c.isDigit() }) },
                     modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     placeholder = { Text("0") },
+                    supportingText = {
+                        val raw = uiState.amountText.toLongOrNull() ?: 0L
+                        if (raw > 0) Text("${formatCurrency(raw)}")
+                    },
                     textStyle = MaterialTheme.typography.headlineMedium.copy(
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
@@ -283,16 +287,60 @@ fun TransactionFormScreen(
                 }
             }
 
-            // Nội dung chi tiêu / Chuyển khoản
-            OutlinedTextField(
-                value = uiState.memo,
-                onValueChange = { viewModel.onMemoChanged(it) },
-                label = { Text("Nội dung chuyển khoản / Ghi chú") },
-                placeholder = { Text("Ví dụ: Cơm trưa, Cà phê...") },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                singleLine = true
-            )
+            // Nội dung chi tiêu / Chuyển khoản + tag nhanh
+            Column {
+                OutlinedTextField(
+                    value = uiState.memo,
+                    onValueChange = { viewModel.onMemoChanged(it) },
+                    label = { Text("Nội dung chuyển khoản / Ghi chú") },
+                    placeholder = { Text("Ví dụ: Cơm trưa, Cà phê...") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    singleLine = true
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    uiState.memoTags.forEach { tag ->
+                        SuggestionChip(
+                            onClick = { viewModel.onMemoTagClicked(tag) },
+                            label = { Text(tag, fontSize = 12.sp) }
+                        )
+                    }
+                }
+                var showAddTag by remember { mutableStateOf(false) }
+                var newTagText by remember { mutableStateOf("") }
+                if (showAddTag) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = newTagText,
+                            onValueChange = { newTagText = it },
+                            placeholder = { Text("Tag mới...") },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            singleLine = true
+                        )
+                        Button(onClick = {
+                            viewModel.onAddCustomTag(newTagText)
+                            newTagText = ""
+                            showAddTag = false
+                        }) { Text("Thêm") }
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = { showAddTag = true },
+                        modifier = Modifier.padding(top = 8.dp)
+                    ) { Text("+ Tự thêm tag", fontSize = 12.sp) }
+                }
+            }
 
             // Tên người nhận (nếu chưa có hoặc muốn sửa)
             if (uiState.bankBin.isNotBlank()) {
@@ -407,7 +455,7 @@ fun TransactionFormScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "Ứng dụng sẽ tự động sao chép STK, số tiền và nội dung vào Clipboard trước khi mở app.",
+                        "App sẽ thử mở kèm thông tin chuyển khoản. Hầu hết app ngân hàng VN không hỗ trợ tự điền — trường hợp đó STK, số tiền, nội dung đã được sao chép, bạn chỉ cần dán vào app ngân hàng.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

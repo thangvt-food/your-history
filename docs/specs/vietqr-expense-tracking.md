@@ -87,16 +87,34 @@ Các Entity lưu trữ trong Room Database:
   - `Tag 62`: Dữ liệu bổ sung, Subtag `08` là nội dung giao dịch (Purpose of Transaction).
 - Nếu mã QR không đúng chuẩn VietQR: Thông báo lỗi rõ ràng hoặc cho phép người dùng nhập tay.
 
-### 4.2. Khởi chạy App Ngân hàng (Handoff)
+### 4.2. Khởi chạy App Ngân hàng (Handoff v2)
 - Tạo URI Napas VietQR chuẩn:
   `vietqr://transfer?bank={bankBin}&account={accountNumber}&amount={amount}&memo={encodedMemo}`
-- Thử mở qua `Intent(Intent.ACTION_VIEW, uri)`.
-- Nếu thiết bị chưa đăng ký handler cho scheme này:
-  - Copy toàn bộ thông tin quan trọng vào Clipboard (Số tài khoản, Số tiền, Nội dung).
-  - Hiển thị BottomSheet danh sách các App Ngân hàng đang có sẵn trên máy (VCB Digibank, MB Bank, Techcombank Mobile, TPBank, BIDV SmartBanking, VPBank NEO, ACB ONE, MoMo, v.v.) kèm icon để người dùng bấm mở 1 chạm.
+- Thứ tự ưu tiên khi người dùng đã chọn app cụ thể (`targetPackageName`):
+  1. Thử `Intent(ACTION_VIEW, vietqrUri).setPackage(targetPackage)` — nếu app có đăng ký
+     scheme Napas thì mở thẳng màn hình CK kèm thông tin (kết quả tốt nhất).
+  2. Nếu `resolveActivity == null`: mở app trắng qua `getLaunchIntentForPackage`
+     + Toast hướng dẫn dán thủ công (STK, số tiền, nội dung đã copy vào Clipboard).
+- Không chọn app cụ thể: thử deep link chung, rồi fallback mở app của ngân hàng
+  nhận (tra theo BIN) — cũng thử deep link gắn package trước, mở trắng sau.
+- Ghi chú trung thực cho người dùng: hầu hết app ngân hàng VN không hỗ trợ điền
+  sẵn form qua intent, nên Clipboard + hướng dẫn dán là luồng chính, deep link
+  chỉ là best-effort.
+
+### 4.3. Nhập số tiền & Nội dung chuyển khoản
+- Ô số tiền lưu trữ chữ số thô (`amountText` digits-only), hiển thị nhóm 3 số
+  cách nhau bằng dấu cách: `1000000` -> `1 000 000` (`formatAmountInput`, thuần
+  Kotlin, unit-test được). `supportingText` hiển thị thêm dạng `formatCurrency`.
+- Nội dung CK điền nhanh bằng tag: 8 tag mặc định (Cơm trưa, Cà phê, Xăng xe,
+  Đi chợ, Tiền nhà, Trả nợ, Ăn vặt, Mua sắm). Chạm tag: trống thì gán, có rồi
+  thì nối thêm (không trùng lặp). Người dùng tự thêm tag mới, lưu bền vào
+  DataStore (`memo_tags`, phân cách `|||`) để lần sau dùng tiếp.
 
 ---
 
 ## 5. Kế hoạch Kiểm thử & Xác minh
 - **Unit Test**: Test parser VietQR với chuỗi mẫu của các ngân hàng phổ biến (MB, VCB, ACB).
+  Thêm test `formatAmountInput`: "", "5", "20000"->"20 000", "1000000"->"1 000 000".
 - **Manual Test**: Kiểm tra camera quét nhạy, phân tích ảnh từ gallery, sao chép clipboard chính xác và mở đúng app ngân hàng.
+  Kiểm tra handoff trên 2-3 app bank thật: trường hợp deep link được (mở kèm info)
+  và trường hợp mở trắng + dán clipboard.
