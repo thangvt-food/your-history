@@ -89,6 +89,22 @@ object BankingHandoffManager {
     }
 
     /**
+     * Mở app theo package, không copy clipboard, không deep link.
+     * Dùng khi đã xử lý clipboard/ảnh QR ở tầng trên.
+     */
+    fun openAppPackage(context: Context, packageName: String): Boolean {
+        return try {
+            val launchIntent =
+                context.packageManager.getLaunchIntentForPackage(packageName) ?: return false
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(launchIntent)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
      * Attempts to launch the banking app.
      *
      * Thực tế tại VN: hầu hết app ngân hàng KHÔNG hỗ trợ điền sẵn form

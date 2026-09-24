@@ -11,6 +11,10 @@ import com.yourhistory.app.data.repository.ExpenseRepository
 import com.yourhistory.app.domain.handoff.BankingHandoffManager
 import com.yourhistory.app.domain.model.BankInfo
 import com.yourhistory.app.domain.model.VietnameseBanks
+import com.yourhistory.app.domain.parser.VietQrBuilder
+import com.yourhistory.app.ui.showqr.QrBitmapRenderer
+import com.yourhistory.app.ui.showqr.QrImageSaver
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -22,6 +26,17 @@ import kotlinx.coroutines.launch
 sealed class TransactionFormEvent {
     data object TransactionSaved : TransactionFormEvent()
     data class ShowBankPicker(val availableBanks: List<BankInfo>) : TransactionFormEvent()
+    data class ShowQr(
+        val payload: String,
+        val bankBin: String,
+        val bankName: String,
+        val accountNumber: String,
+        val amount: Long,
+        val memo: String,
+        val senderPackage: String?,
+        val senderBankName: String,
+        val imageSaved: Boolean
+    ) : TransactionFormEvent()
     data class Error(val message: String) : TransactionFormEvent()
 }
 
@@ -182,6 +197,79 @@ class TransactionFormViewModel(
     }
 
     /**
+     * Luồng chuyển nhanh: dựng mã VietQR động (đủ tiền + nội dung),
+     * LƯU ẢNH vào Thư viện để quét từ app bank, lưu giao dịch,
+     * copy clipboard dự phòng, rồi mở màn hình hướng dẫn.
+     */
+    fun buildAndShowQr(context: Context, targetPackageName: String? = null) {
+        val state = _uiState.value
+        val amount = state.amountText.toLongOrNull() ?: 0L
+        if (amount <= 0) {
+            viewModelScope.launch {
+                _events.emit(TransactionFormEvent.Error("Vui lòng nhập số tiền hợp lệ."))
+            }
+            return
+        }
+        if (state.bankBin.isBlank() || state.accountNumber.isBlank()) {
+            viewModelScope.launch {
+                _events.emit(TransactionFormEvent.Error("Thiếu thông tin tài khoản nhận."))
+            }
+            return
+        }
+
+        val payload = VietQrBuilder.build(
+            bankBin = state.bankBin,
+            accountNumber = state.accountNumber,
+            amount = amount,
+            memo = state.memo,
+            recipientName = state.recipientName
+        )
+        if (payload.isNullOrBlank()) {
+            viewModelScope.launch {
+                _events.emit(TransactionFormEvent.Error("Không dựng được mã QR từ thông tin này."))
+            }
+            return
+        }
+
+        val senderBank = state.installedBanks.firstOrNull { it.packageName == targetPackageName }
+        val senderName = senderBank?.shortName ?: "app ngân hàng"
+
+        viewModelScope.launch(Dispatchers.IO) {
+            _uiState.value = _uiState.value.copy(isSaving = true)
+
+            // 1. Render + lưu ảnh QR vào Thư viện (để quét từ app bank)
+            val bitmap = QrBitmapRenderer.render(payload)
+            val imageSaved = if (bitmap != null) {
+                val fileName = "VietQR_${System.currentTimeMillis()}.png"
+                QrImageSaver.saveToGallery(context, bitmap, fileName) != null
+            } else false
+
+            // 2. Lưu giao dịch + danh bạ
+            persistTransaction(state, amount)
+
+            // 3. Copy clipboard dự phòng (bank không hỗ trợ quét từ ảnh)
+            BankingHandoffManager.copyTransferInfoToClipboard(
+                context, state.accountNumber, amount, state.memo
+            )
+
+            _uiState.value = _uiState.value.copy(isSaving = false)
+            _events.emit(
+                TransactionFormEvent.ShowQr(
+                    payload = payload,
+                    bankBin = state.bankBin,
+                    bankName = state.bankName,
+                    accountNumber = state.accountNumber,
+                    amount = amount,
+                    memo = state.memo,
+                    senderPackage = targetPackageName,
+                    senderBankName = senderName,
+                    imageSaved = imageSaved
+                )
+            )
+        }
+    }
+
+    /**
      * Chuyển tiền qua App Ngân hàng & Lưu giao dịch vào máy
      */
     fun transferAndSave(context: Context, targetPackageName: String? = null) {
@@ -194,43 +282,12 @@ class TransactionFormViewModel(
             return
         }
 
-        val categoryId = state.selectedCategory?.id ?: "cat_other_expense"
-
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isSaving = true)
 
-            // 1. Lưu hoặc cập nhật Danh bạ QR nếu người dùng tích chọn
-            if (state.saveToContacts && state.bankBin.isNotBlank() && state.accountNumber.isNotBlank()) {
-                val contact = QrContactEntity(
-                    recipientName = state.recipientName.ifBlank { state.bankName },
-                    bankBin = state.bankBin,
-                    bankName = state.bankName,
-                    accountNumber = state.accountNumber,
-                    defaultAmount = amount,
-                    defaultNote = state.memo,
-                    defaultCategoryId = categoryId,
-                    lastUsedAt = System.currentTimeMillis()
-                )
-                repository.saveQrContact(contact)
-            } else if (!state.contactId.isNullOrBlank()) {
-                repository.updateQrContactLastUsed(state.contactId)
-            }
+            persistTransaction(state, amount)
 
-            // 2. Lưu Giao dịch vào Room Database
-            val transaction = TransactionEntity(
-                amount = amount,
-                type = state.selectedType,
-                categoryId = categoryId,
-                note = state.memo.ifBlank { state.recipientName.ifBlank { state.bankName } },
-                qrContactId = state.contactId,
-                recipientName = state.recipientName,
-                bankName = state.bankName,
-                accountNumber = state.accountNumber,
-                paymentMethod = if (state.bankBin.isNotBlank()) "VIETQR" else "CASH"
-            )
-            repository.insertTransaction(transaction)
-
-            // 3. Khởi chạy App Ngân hàng
+            // Khởi chạy App Ngân hàng
             if (state.bankBin.isNotBlank() && state.accountNumber.isNotBlank()) {
                 BankingHandoffManager.launchBankingHandoff(
                     context = context,
@@ -245,6 +302,42 @@ class TransactionFormViewModel(
             _uiState.value = _uiState.value.copy(isSaving = false)
             _events.emit(TransactionFormEvent.TransactionSaved)
         }
+    }
+
+    /** Lưu Danh bạ QR (nếu tick) + Giao dịch vào Room. Dùng chung cho mọi luồng. */
+    private suspend fun persistTransaction(state: TransactionFormState, amount: Long) {
+        val categoryId = state.selectedCategory?.id ?: "cat_other_expense"
+
+        // 1. Lưu hoặc cập nhật Danh bạ QR nếu người dùng tích chọn
+        if (state.saveToContacts && state.bankBin.isNotBlank() && state.accountNumber.isNotBlank()) {
+            val contact = QrContactEntity(
+                recipientName = state.recipientName.ifBlank { state.bankName },
+                bankBin = state.bankBin,
+                bankName = state.bankName,
+                accountNumber = state.accountNumber,
+                defaultAmount = amount,
+                defaultNote = state.memo,
+                defaultCategoryId = categoryId,
+                lastUsedAt = System.currentTimeMillis()
+            )
+            repository.saveQrContact(contact)
+        } else if (!state.contactId.isNullOrBlank()) {
+            repository.updateQrContactLastUsed(state.contactId)
+        }
+
+        // 2. Lưu Giao dịch vào Room Database
+        val transaction = TransactionEntity(
+            amount = amount,
+            type = state.selectedType,
+            categoryId = categoryId,
+            note = state.memo.ifBlank { state.recipientName.ifBlank { state.bankName } },
+            qrContactId = state.contactId,
+            recipientName = state.recipientName,
+            bankName = state.bankName,
+            accountNumber = state.accountNumber,
+            paymentMethod = if (state.bankBin.isNotBlank()) "VIETQR" else "CASH"
+        )
+        repository.insertTransaction(transaction)
     }
 
     /**

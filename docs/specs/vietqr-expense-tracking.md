@@ -101,6 +101,29 @@ Các Entity lưu trữ trong Room Database:
   sẵn form qua intent, nên Clipboard + hướng dẫn dán là luồng chính, deep link
   chỉ là best-effort.
 
+### 4.4. Chuyển nhanh qua ảnh QR lưu Thư viện (luồng chính, universal)
+- Vấn đề: deep link `vietqr://` tùy app (VD ZaloPay xử lý được nhờ hợp tác riêng
+  + ký số với bank, MB Bank không). Không có API public nào để nhét STK/số tiền
+  vào app bank. Hiện QR trên màn hình cũng vô dụng với 1 điện thoại (camera
+  không quét được màn hình của chính nó).
+- Giải pháp dùng tài liệu chính thức của bank: VCB Digibank và Techcombank Mobile
+  đều hỗ trợ "quét QR từ thư viện ảnh" ngay trong màn hình quét. Luồng:
+  1. App dựng mã VietQR ĐỘNG đủ số tiền + nội dung (`VietQrBuilder`), render
+     bằng ZXing (`QrBitmapRenderer`, offline).
+  2. Lưu ảnh PNG vào Thư viện (`QrImageSaver`: MediaStore `Pictures/YourHistory`
+     từ Android 10 không cần quyền; Android 8-9 xin `WRITE_EXTERNAL_STORAGE`).
+  3. Lưu lịch sử giao dịch + copy clipboard dự phòng, mở màn hình hướng dẫn.
+  4. Người dùng chọn app bank của mình (tài khoản chuyển đi), bấm mở,
+     trong app bank chọn Quét QR → ảnh từ Thư viện → STK/tiền/nội dung tự điền.
+- `VietQrBuilder` (thuần Kotlin, `domain/parser`):
+  - Dựng EMVCo: `00=01`, `01=12/11` (động/tĩnh), `38={00:A000000727, 01:{00:BIN, 01:STK}, 02:QRIBFTTA}`,
+    `52=0000`, `53=704`, `54=số tiền`, `58=VN`, `59=tên`, `60=VN`, `62={08:nội dung}`,
+    `63=CRC16-CCITT-FALSE` (poly `0x1021`, init `0xFFFF`).
+  - Tên/nội dung chuẩn hóa ASCII in hoa, bỏ dấu tiếng Việt (tránh lỗi độ dài TLV).
+- Nút ở `TransactionForm`: 1) Chuyển nhanh & Lưu (chính: chọn bank gửi → lưu ảnh
+  + lịch sử → màn hình mở bank), 2) Mở app bank dán thủ công (fallback),
+  3) Chỉ lưu.
+
 ### 4.3. Nhập số tiền & Nội dung chuyển khoản
 - Ô số tiền lưu trữ chữ số thô (`amountText` digits-only), hiển thị nhóm 3 số
   cách nhau bằng dấu cách: `1000000` -> `1 000 000` (`formatAmountInput`, thuần
@@ -115,6 +138,8 @@ Các Entity lưu trữ trong Room Database:
 ## 5. Kế hoạch Kiểm thử & Xác minh
 - **Unit Test**: Test parser VietQR với chuỗi mẫu của các ngân hàng phổ biến (MB, VCB, ACB).
   Thêm test `formatAmountInput`: "", "5", "20000"->"20 000", "1000000"->"1 000 000".
+  Thêm test `VietQrBuilderTest`: vector CRC `123456789`->`0x29B1`, round-trip
+  build->parse, QR tĩnh không có tag 54.
 - **Manual Test**: Kiểm tra camera quét nhạy, phân tích ảnh từ gallery, sao chép clipboard chính xác và mở đúng app ngân hàng.
   Kiểm tra handoff trên 2-3 app bank thật: trường hợp deep link được (mở kèm info)
   và trường hợp mở trắng + dán clipboard.

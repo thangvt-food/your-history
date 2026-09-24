@@ -38,6 +38,7 @@ Toàn bộ mã nguồn phải tuân thủ nghiêm ngặt các phiên bản đã 
 | **Bất đồng bộ (Asynchronous)** | `Coroutines 1.8.1` | `kotlinx-coroutines-android` + StateFlow / SharedFlow |
 | **Camera Preview** | `CameraX 1.3.4` | `camera-camera2`, `camera-lifecycle`, `camera-view` |
 | **Nhận diện mã vạch** | `ML Kit 17.2.0` | `com.google.mlkit:barcode-scanning` (100% offline) |
+| **Dựng mã QR** | `ZXing core 3.5.3` | `com.google.zxing:core` (thuần Java, render VietQR cho app bank quét) |
 
 ---
 
@@ -60,12 +61,13 @@ com.yourhistory.app/
 │   └── repository/               # Repository interfaces & implementations
 ├── domain/                       # Tầng Nghiệp vụ cốt lõi (Pure Kotlin preferred)
 │   ├── model/                    # Domain models (BankInfo, VietQrData, FinancialSummary)
-│   ├── parser/                   # VietQrParser (EMVCo TLV & URL parser)
+│   ├── parser/                   # VietQrParser, VietQrBuilder (parse & dựng EMVCo)
 │   └── handoff/                  # BankingHandoffManager (Deep links & app chooser)
 └── ui/                           # Tầng Giao diện người dùng (Jetpack Compose)
     ├── home/                     # Màn hình Trang chủ & Dashboard thu chi
     ├── scanner/                  # Màn hình Quét VietQR (CameraX + Gallery picker)
     ├── transaction/              # Màn hình Nhập chi tiêu & Form chuyển khoản
+    ├── showqr/                   # Màn hình Hiện VietQR cho app bank quét (ZXing render)
     ├── contacts/                 # Màn hình Quản lý Danh bạ QR chuyển nhanh
     ├── history/                  # Màn hình Lịch sử & Bộ lọc giao dịch
     ├── navigation/               # AppNavigation & Screen route definitions
@@ -134,3 +136,9 @@ Một tính năng hoặc thay đổi chỉ được coi là hoàn thành khi đ�
 - **Kinh nghiệm kỹ thuật**:
   1. *Deep link có package vẫn là best-effort*: `Intent(ACTION_VIEW, vietqrUri).setPackage(pkg)` chỉ hiệu quả nếu bank đăng ký scheme Napas; phần lớn trường hợp vẫn mở trắng nên phải Toast trung thực + hướng dẫn dán từ Clipboard thay vì hứa hẹn tự điền.
   2. *Tiền nhập digits-only, hiển thị grouped*: giữ `amountText` là chữ số thô trong ViewModel, format `1 000 000` ở tầng UI bằng hàm thuần Kotlin trong `companion object` để dễ unit test JVM.
+
+### Session 3: Luồng Hiện VietQR để quét (2026-09-24)
+- **Tài liệu chi tiết**: [`docs/sessions/2026-09-24-show-qr.md`](docs/sessions/2026-09-24-show-qr.md) (bản đầu, đã bị thay thế), luồng đúng tại [`docs/sessions/2026-09-24-gallery-qr.md`](docs/sessions/2026-09-24-gallery-qr.md), spec §4.4 tại [`docs/specs/vietqr-expense-tracking.md`](docs/specs/vietqr-expense-tracking.md).
+- **Kinh nghiệm kỹ thuật**:
+  1. *Không có API public để điền sẵn app bank*: deeplink (kể cả `mbbank://`) chỉ mở app; Zalo làm được nhờ hợp tác riêng + ký số. Hiện QR trên màn hình cũng vô dụng với 1 máy. Luồng universal duy nhất: dựng QR động -> lưu ảnh Thư viện -> quét từ ảnh trong app bank (VCB/TCB có tài liệu chính thức).
+  2. *Chuẩn hóa ASCII trước khi dựng EMV*: tên/memo bỏ dấu, in hoa, truncate theo giới hạn TLV để tránh mã QR lỗi mà bank không đọc được.

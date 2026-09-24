@@ -43,15 +43,9 @@ fun HistoryScreen(
     val uiState by viewModel.uiState.collectAsState()
 
     val filteredTransactions = uiState.transactions.filter { tx ->
-        val matchesType = when (uiState.filterType) {
-            "EXPENSE" -> tx.type == "EXPENSE"
-            "INCOME" -> tx.type == "INCOME"
-            else -> true
-        }
-        val matchesQuery = tx.note.contains(uiState.searchQuery, ignoreCase = true) ||
+        tx.note.contains(uiState.searchQuery, ignoreCase = true) ||
                 (tx.recipientName?.contains(uiState.searchQuery, ignoreCase = true) ?: false) ||
                 (tx.bankName?.contains(uiState.searchQuery, ignoreCase = true) ?: false)
-        matchesType && matchesQuery
     }
 
     Scaffold(
@@ -83,29 +77,6 @@ fun HistoryScreen(
                 singleLine = true
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Bộ lọc loại giao dịch
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FilterChip(
-                    selected = uiState.filterType == "ALL",
-                    onClick = { viewModel.onFilterTypeChanged("ALL") },
-                    label = { Text("Tất cả") }
-                )
-                FilterChip(
-                    selected = uiState.filterType == "EXPENSE",
-                    onClick = { viewModel.onFilterTypeChanged("EXPENSE") },
-                    label = { Text("Chi tiêu") }
-                )
-                FilterChip(
-                    selected = uiState.filterType == "INCOME",
-                    onClick = { viewModel.onFilterTypeChanged("INCOME") },
-                    label = { Text("Thu nhập") }
-                )
-            }
 
             Spacer(modifier = Modifier.height(16.dp))
 

@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -66,8 +67,14 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import com.yourhistory.app.domain.model.BankInfo
 import com.yourhistory.app.ui.home.formatCurrency
+import com.yourhistory.app.ui.showqr.QrImageSaver
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -81,13 +88,43 @@ fun TransactionFormScreen(
     recipient: String,
     contactId: String,
     onNavigateBack: () -> Unit,
-    onTransactionSuccess: () -> Unit
+    onTransactionSuccess: () -> Unit,
+    onShowQr: (
+        payload: String, bankBin: String, bankName: String, accountNumber: String,
+        amount: Long, memo: String, senderPackage: String?, senderBankName: String,
+        imageSaved: Boolean
+    ) -> Unit
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var showBankPickerSheet by remember { mutableStateOf(false) }
+
+    // Android 8-9 cần quyền ghi để lưu ảnh QR vào Thư viện (Android 10+ thì không)
+    var pendingSenderPkg by remember { mutableStateOf<String?>(null) }
+    var showQrRequested by remember { mutableStateOf(false) }
+    val writePermLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) {
+        if (showQrRequested) {
+            viewModel.buildAndShowQr(context, pendingSenderPkg)
+            showQrRequested = false
+        }
+    }
+    fun requestShowQr(senderPkg: String?) {
+        val needPerm = QrImageSaver.needsWritePermission() &&
+            ContextCompat.checkSelfPermission(
+                context, Manifest.permission.WRITE_EXTERNAL_STORAGE
+            ) != PackageManager.PERMISSION_GRANTED
+        if (needPerm) {
+            pendingSenderPkg = senderPkg
+            showQrRequested = true
+            writePermLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        } else {
+            viewModel.buildAndShowQr(context, senderPkg)
+        }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.initData(
@@ -114,6 +151,19 @@ fun TransactionFormScreen(
                 }
                 is TransactionFormEvent.ShowBankPicker -> {
                     showBankPickerSheet = true
+                }
+                is TransactionFormEvent.ShowQr -> {
+                    onShowQr(
+                        event.payload,
+                        event.bankBin,
+                        event.bankName,
+                        event.accountNumber,
+                        event.amount,
+                        event.memo,
+                        event.senderPackage,
+                        event.senderBankName,
+                        event.imageSaved
+                    )
                 }
             }
         }
@@ -241,52 +291,6 @@ fun TransactionFormScreen(
                 }
             }
 
-            // Chọn Loại: Chi tiêu / Thu nhập
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                FilterChip(
-                    selected = uiState.selectedType == "EXPENSE",
-                    onClick = { viewModel.onTypeChanged("EXPENSE") },
-                    label = { Text("Chi tiêu") },
-                    modifier = Modifier.weight(1f)
-                )
-                FilterChip(
-                    selected = uiState.selectedType == "INCOME",
-                    onClick = { viewModel.onTypeChanged("INCOME") },
-                    label = { Text("Thu nhập") },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            // Chọn Danh mục
-            Column {
-                Text(
-                    "Danh mục",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    uiState.categories.forEach { category ->
-                        val isSelected = uiState.selectedCategory?.id == category.id
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = { viewModel.onCategorySelected(category) },
-                            label = { Text(category.name) },
-                            leadingIcon = if (isSelected) {
-                                { Icon(Icons.Default.Check, contentDescription = null) }
-                            } else null
-                        )
-                    }
-                }
-            }
-
             // Nội dung chi tiêu / Chuyển khoản + tag nhanh
             Column {
                 OutlinedTextField(
@@ -377,13 +381,13 @@ fun TransactionFormScreen(
 
             // Action Buttons
             if (uiState.bankBin.isNotBlank()) {
-                // Nút Chuyển tiền qua Ngân hàng & Lưu
+                // Nút chính: chuyển nhanh — lưu ảnh QR + lịch sử, mở app bank quét từ ảnh
                 Button(
                     onClick = {
                         if (uiState.installedBanks.size > 1) {
                             showBankPickerSheet = true
                         } else {
-                            viewModel.transferAndSave(context)
+                            requestShowQr(uiState.installedBanks.firstOrNull()?.packageName)
                         }
                     },
                     modifier = Modifier
@@ -394,13 +398,32 @@ fun TransactionFormScreen(
                         containerColor = MaterialTheme.colorScheme.primary
                     )
                 ) {
-                    Icon(Icons.Default.OpenInNew, contentDescription = null)
+                    Icon(Icons.Default.QrCodeScanner, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        "Chuyển tiền & Lưu chi tiêu",
+                        "Chuyển nhanh & Lưu",
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp
                     )
+                }
+
+                // Nút phụ: Mở app ngân hàng & Lưu (deep link + clipboard)
+                OutlinedButton(
+                    onClick = {
+                        if (uiState.installedBanks.size > 1) {
+                            showBankPickerSheet = true
+                        } else {
+                            viewModel.transferAndSave(context)
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Icon(Icons.Default.OpenInNew, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Mở app bank (dán thủ công)")
                 }
 
                 // Nút phụ: Chỉ lưu không mở ngân hàng
@@ -449,25 +472,25 @@ fun TransactionFormScreen(
                         .padding(20.dp)
                 ) {
                     Text(
-                        "Chọn App Ngân hàng chuyển tiền",
+                        "Chọn app ngân hàng của bạn (tài khoản chuyển đi)",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "App sẽ thử mở kèm thông tin chuyển khoản. Hầu hết app ngân hàng VN không hỗ trợ tự điền — trường hợp đó STK, số tiền, nội dung đã được sao chép, bạn chỉ cần dán vào app ngân hàng.",
+                        "App dựng sẵn mã QR đủ số tiền + nội dung, lưu vào Thư viện ảnh và lưu lịch sử. Mở app bank → Quét QR → chọn ảnh từ Thư viện là xong, không cần gõ hay dán.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Lựa chọn mở mặc định qua VietQR Deep Link
+                    // Không chọn app cụ thể: chỉ lưu ảnh + lịch sử, tự mở bank sau
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
                                 showBankPickerSheet = false
-                                viewModel.transferAndSave(context, null)
+                                requestShowQr(null)
                             }
                             .padding(vertical = 4.dp),
                         shape = RoundedCornerShape(12.dp)
@@ -483,20 +506,20 @@ fun TransactionFormScreen(
                             )
                             Spacer(modifier = Modifier.width(16.dp))
                             Text(
-                                "Mở tự động (Chuẩn Napas / VietQR)",
+                                "Không mở app ngay (chỉ lưu ảnh QR + lịch sử)",
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
                     }
 
-                    // Danh sách các app ngân hàng tìm thấy trên máy
+                    // Danh sách các app ngân hàng tìm thấy trên máy (tài khoản chuyển đi)
                     uiState.installedBanks.forEach { bank ->
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
                                     showBankPickerSheet = false
-                                    viewModel.transferAndSave(context, bank.packageName)
+                                    requestShowQr(bank.packageName)
                                 }
                                 .padding(vertical = 4.dp),
                             shape = RoundedCornerShape(12.dp)

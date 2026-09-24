@@ -113,9 +113,7 @@ fun HomeScreen(
             // Card tổng quan tháng
             item {
                 MonthlyOverviewCard(
-                    totalExpense = uiState.summary.totalExpense,
-                    totalIncome = uiState.summary.totalIncome,
-                    balance = uiState.summary.balance
+                    totalExpense = uiState.summary.totalExpense
                 )
             }
 
@@ -257,9 +255,7 @@ fun HomeScreen(
 
 @Composable
 fun MonthlyOverviewCard(
-    totalExpense: Long,
-    totalIncome: Long,
-    balance: Long
+    totalExpense: Long
 ) {
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
@@ -272,77 +268,17 @@ fun MonthlyOverviewCard(
             modifier = Modifier.padding(20.dp)
         ) {
             Text(
-                "Số dư tháng này",
+                "Chi tiêu qua VietQR tháng này",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
             )
+            Spacer(modifier = Modifier.height(6.dp))
             Text(
-                formatCurrency(balance),
+                formatCurrency(totalExpense),
                 style = MaterialTheme.typography.headlineLarge,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onPrimaryContainer
             )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                // Chi tiêu
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(ExpenseRed.copy(alpha = 0.15f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Default.ArrowDownward,
-                            contentDescription = null,
-                            tint = ExpenseRed,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column {
-                        Text("Tổng chi", style = MaterialTheme.typography.labelLarge)
-                        Text(
-                            formatCurrency(totalExpense),
-                            fontWeight = FontWeight.Bold,
-                            color = ExpenseRed
-                        )
-                    }
-                }
-
-                // Thu nhập
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(IncomeGreen.copy(alpha = 0.15f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Default.ArrowUpward,
-                            contentDescription = null,
-                            tint = IncomeGreen,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column {
-                        Text("Tổng thu", style = MaterialTheme.typography.labelLarge)
-                        Text(
-                            formatCurrency(totalIncome),
-                            fontWeight = FontWeight.Bold,
-                            color = IncomeGreen
-                        )
-                    }
-                }
-            }
         }
     }
 }

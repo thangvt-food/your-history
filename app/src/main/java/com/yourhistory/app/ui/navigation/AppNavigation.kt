@@ -14,6 +14,7 @@ import com.yourhistory.app.ui.home.HomeScreen
 import com.yourhistory.app.ui.home.HomeViewModel
 import com.yourhistory.app.ui.scanner.QrScannerScreen
 import com.yourhistory.app.ui.scanner.ScannerViewModel
+import com.yourhistory.app.ui.showqr.ShowQrScreen
 import com.yourhistory.app.ui.transaction.TransactionFormScreen
 import com.yourhistory.app.ui.transaction.TransactionFormViewModel
 import org.koin.androidx.compose.koinViewModel
@@ -112,6 +113,67 @@ fun AppNavigation(navController: NavHostController) {
                 contactId = contactId,
                 onNavigateBack = { navController.popBackStack() },
                 onTransactionSuccess = {
+                    navController.navigate(Screen.Home.route) {
+                        popUpTo(Screen.Home.route) { inclusive = true }
+                    }
+                },
+                onShowQr = { payload, qrBankBin, qrBankName, qrAccount, qrAmount, qrMemo, senderPkg, senderName, imgSaved ->
+                    navController.navigate(
+                        Screen.ShowQr.createRoute(
+                            payload = payload,
+                            bankBin = qrBankBin,
+                            bankName = qrBankName,
+                            account = qrAccount,
+                            amount = qrAmount,
+                            memo = qrMemo,
+                            senderPkg = senderPkg,
+                            senderName = senderName,
+                            imageSaved = imgSaved
+                        )
+                    )
+                }
+            )
+        }
+
+        // Màn hình chuyển nhanh: ảnh QR đã lưu + mở app bank quét từ ảnh
+        composable(
+            route = Screen.ShowQr.route,
+            arguments = listOf(
+                navArgument("payload") { type = NavType.StringType; defaultValue = "" },
+                navArgument("bankBin") { type = NavType.StringType; defaultValue = "" },
+                navArgument("bankName") { type = NavType.StringType; defaultValue = "" },
+                navArgument("account") { type = NavType.StringType; defaultValue = "" },
+                navArgument("amount") { type = NavType.StringType; defaultValue = "" },
+                navArgument("memo") { type = NavType.StringType; defaultValue = "" },
+                navArgument("senderPkg") { type = NavType.StringType; defaultValue = "" },
+                navArgument("senderName") { type = NavType.StringType; defaultValue = "" },
+                navArgument("imgSaved") { type = NavType.StringType; defaultValue = "0" }
+            )
+        ) { backStackEntry ->
+            fun dec(s: String?) = try { URLDecoder.decode(s ?: "", "UTF-8") } catch (e: Exception) { s ?: "" }
+            val payload = dec(backStackEntry.arguments?.getString("payload"))
+            val qrBankBin = backStackEntry.arguments?.getString("bankBin") ?: ""
+            val qrBankName = dec(backStackEntry.arguments?.getString("bankName"))
+            val qrAccount = backStackEntry.arguments?.getString("account") ?: ""
+            val qrAmount = backStackEntry.arguments?.getString("amount")?.toLongOrNull()
+            val qrMemo = dec(backStackEntry.arguments?.getString("memo"))
+            val senderPkgRaw = dec(backStackEntry.arguments?.getString("senderPkg"))
+            val senderPkg = senderPkgRaw.ifBlank { null }
+            val senderName = dec(backStackEntry.arguments?.getString("senderName"))
+            val imgSaved = backStackEntry.arguments?.getString("imgSaved") == "1"
+
+            ShowQrScreen(
+                emvPayload = payload,
+                bankBin = qrBankBin,
+                bankName = qrBankName,
+                accountNumber = qrAccount,
+                amount = qrAmount,
+                memo = qrMemo,
+                senderPackage = senderPkg,
+                senderBankName = senderName,
+                imageSaved = imgSaved,
+                onNavigateBack = { navController.popBackStack() },
+                onDone = {
                     navController.navigate(Screen.Home.route) {
                         popUpTo(Screen.Home.route) { inclusive = true }
                     }

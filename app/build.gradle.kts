@@ -99,6 +99,9 @@ dependencies {
     // Google ML Kit Barcode Scanning (Offline)
     implementation("com.google.mlkit:barcode-scanning:17.2.0")
 
+    // ZXing Core (thuần Java) để RENDER mã VietQR cho app ngân hàng quét
+    implementation("com.google.zxing:core:3.5.3")
+
     // Koin Dependency Injection
     implementation("io.insert-koin:koin-androidx-compose:3.5.6")
 
