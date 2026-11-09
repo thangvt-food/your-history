@@ -1,0 +1,22 @@
+slug: your-history
+name: Your History
+tagline: Quản lý chi tiêu và chuyển khoản VietQR trên Android
+url: https://github.com/thangvt-food/your-history
+status: paused
+visibility: private
+description: Ứng dụng Android quản lý chi tiêu cá nhân, hỗ trợ tạo và quét VietQR để chuyển khoản nhanh.
+tags:
+  - android
+  - tài-chính
+  - vietqr
+category: finance
+tech:
+  - kotlin
+  - android
+hosting: local
+updated: '2026-09-24'
+icon: 📱
+auth: none
+links:
+  repo: https://github.com/thangvt-food/your-history
+notes: Repo public, app Android Kotlin; chưa có URL web.
